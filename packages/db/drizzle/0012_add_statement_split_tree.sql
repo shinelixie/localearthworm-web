@@ -1,1 +1,0 @@
-ALTER TABLE "statements" ADD COLUMN "split_tree" jsonb;
