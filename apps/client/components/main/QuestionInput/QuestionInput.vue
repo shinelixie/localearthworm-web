@@ -91,6 +91,21 @@
         <span>{{ showPhonetic ? "隐藏音标" : "音标提示" }}</span>
         <kbd class="hint-kbd">Ctrl+\</kbd>
       </button>
+      <button
+        class="hint-btn"
+        type="button"
+        tabindex="-1"
+        :title="`朗读整句发音（${shortcutKeys.sound}）`"
+        @mousedown.prevent
+        @click="handlePlaySound"
+      >
+        <UIcon
+          name="i-ph-speaker-simple-high"
+          class="hint-icon"
+        />
+        <span>朗读发音</span>
+        <kbd class="hint-kbd">{{ shortcutKeys.sound }}</kbd>
+      </button>
     </div>
 
     <div class="mt-12 flex flex-col items-center justify-center gap-4 md:hidden">
@@ -130,6 +145,7 @@ import { usePhoneticTip } from "~/composables/main/phoneticTip";
 import { isWord } from "~/composables/main/question";
 import { buildWordCards, edgePunct, useWordInfo } from "~/composables/main/wordInfo";
 import { useGamePlayMode } from "~/composables/user/gamePlayMode";
+import { useShortcutKeyMode } from "~/composables/user/shortcutKey";
 import { useShowWordsWidth } from "~/composables/user/words";
 import { useCourseStore } from "~/store/course";
 import { useLearningPathStore } from "~/store/learningPath";
@@ -154,6 +170,7 @@ const {
 } = useWrapperQuestionInput();
 const { isShowWordsWidth } = useShowWordsWidth();
 const { isChineseToEnglishMode } = useGamePlayMode();
+const { shortcutKeys } = useShortcutKeyMode();
 const learningPathStore = useLearningPathStore();
 
 // 难度控制输入提示：
@@ -413,9 +430,13 @@ function preventCursorMove(event: MouseEvent) {
   position: relative;
 }
 
-/* 原句标点：按原位置显示在词旁，字号比词小、颜色与面板下划线/音标同一灰蓝色系 */
+/* 原句标点：按原位置显示在词旁，字号比词小、颜色与面板下划线/音标同一灰蓝色系。
+   .word-line 是 flex 行，标点项会被拉到整行（词格 4rem）高，文本默认顶对齐，
+   逗号/句号就悬在横线上方；align-self: center 把它压到格子垂直中线，
+   与词基线大致平齐，正好落在「横线之间」。 */
 .cell-punct {
   display: inline-block;
+  align-self: center;
   font-size: 1.2em;
   line-height: 1;
   color: #6d879b;
