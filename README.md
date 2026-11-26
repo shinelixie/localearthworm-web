@@ -16,6 +16,7 @@ push 到 `main` 后 `.github/workflows/pages.yaml` 自动构建部署。
 - `apps/client/` — Nuxt 3 前端(`ssr: false`;web 模式走 `composables/web/` 浏览器端后端)
 - `apps/client/public/data/courses.json` — 课程内容(由主仓库 `pnpm web-data` 从 Postgres 导出)
 - `tools/build-web-data.mjs` — 导出脚本(内容更新时在主仓库重跑后同步过来)
+- `apps/client/public/tts/` + `data/tts-manifest.json` — 预合成的神经语音音频与 `文本→地址` 查表(见下「发音」)
 - `使用说明.md` / `课程包导入说明.md` — 站内 `/help` 文档源
 - `.github/workflows/pages.yaml` — Pages 构建部署
 - `apps/client/utils/helpDocs.generated.ts` — 由 `pnpm docs:help` 生成的帮助页内容(随仓库发布)

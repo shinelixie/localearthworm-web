@@ -80,7 +80,7 @@
         :class="{ 'is-on': showPhonetic }"
         type="button"
         tabindex="-1"
-        :title="showPhonetic ? '隐藏音标提示（1）' : '显示音标提示（1）'"
+        :title="showPhonetic ? '隐藏音标提示（Ctrl+\\）' : '显示音标提示（Ctrl+\\）'"
         @mousedown.prevent
         @click="handleTogglePhonetic"
       >
@@ -89,23 +89,7 @@
           class="hint-icon"
         />
         <span>{{ showPhonetic ? "隐藏音标" : "音标提示" }}</span>
-        <kbd class="hint-kbd">1</kbd>
-      </button>
-
-      <button
-        class="hint-btn"
-        type="button"
-        tabindex="-1"
-        title="朗读整句发音（2）"
-        @mousedown.prevent
-        @click="handlePlaySound"
-      >
-        <UIcon
-          name="i-ph-speaker-simple-high"
-          class="hint-icon"
-        />
-        <span>朗读发音</span>
-        <kbd class="hint-kbd">2</kbd>
+        <kbd class="hint-kbd">Ctrl+\</kbd>
       </button>
     </div>
 
@@ -186,7 +170,7 @@ const { resetCloseTip } = useAnswerError();
 initializeQuestionInput();
 focusInputWhenWIndowFocus();
 
-// ---------- 音标提示（共享状态，底部快捷键栏「1 音标提示」也能联动开关） ----------
+// ---------- 音标提示（共享状态，底部快捷键栏「Ctrl+\ 音标提示」也能联动开关） ----------
 const { playSound } = useCurrentStatementEnglishSound();
 const { showPhonetic, toggle: togglePhonetic } = usePhoneticTip();
 const { isReady: isWordInfoReady, load: loadWordInfo, lookup: lookupWord } = useWordInfo();
@@ -196,7 +180,9 @@ const phonetics = computed(() => {
   if (!isWordInfoReady.value) return [] as string[];
   const statement = courseStore.currentStatement;
   if (!statement) return [];
-  return buildWordCards(statement.english, statement.soundmark, lookupWord).map(
+  // analysis 里的逐词音标优先于句子音标/词表：四六级「一句一课」的句子 soundmark
+  // 经常为空、词表只收 3596 个高频词，漏掉 analysis 会让逐词音标大面积空白
+  return buildWordCards(statement.english, statement.soundmark, lookupWord, statement.analysis).map(
     (card) => card.phonetic,
   );
 });
@@ -211,25 +197,17 @@ onMounted(() => {
   focusInput();
   resetCloseTip();
   loadWordInfo();
-  registerShortcut("1", handlePhoneticShortcut);
-  registerShortcut("2", handlePlaySoundShortcut);
+  registerShortcut("Ctrl+\\", handlePhoneticShortcut);
 });
 
 onUnmounted(() => {
-  cancelShortcut("1", handlePhoneticShortcut);
-  cancelShortcut("2", handlePlaySoundShortcut);
+  cancelShortcut("Ctrl+\\", handlePhoneticShortcut);
 });
 
 function handlePhoneticShortcut(e: KeyboardEvent) {
   if (isAdvancedNoHelp.value) return;
   e.preventDefault();
   togglePhonetic();
-}
-
-function handlePlaySoundShortcut(e: KeyboardEvent) {
-  if (isAdvancedNoHelp.value) return;
-  e.preventDefault();
-  playSound();
 }
 
 watch(
@@ -345,26 +323,9 @@ function handleCompositionEnd() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  // 1 = 音标提示，2 = 朗读发音
-  // 英文句子用不到数字键，这里直接截走，避免数字被写进答案；
-  // stopPropagation 防止同时触发 window 上注册的同名快捷键
-  // 高阶难度不给提示（按钮也隐藏）
-  if (
-    !isAdvancedNoHelp.value &&
-    !e.ctrlKey &&
-    !e.metaKey &&
-    !e.altKey &&
-    (e.key === "1" || e.key === "2")
-  ) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.key === "1") {
-      togglePhonetic();
-    } else {
-      playSound();
-    }
-    return;
-  }
+  // 音标提示（Ctrl+\）走 window 级全局快捷键，这里不截数字键——
+  // 数字照常写进答案；带 Ctrl 的组合键由下面的 e.ctrlKey 分支 preventDefault，
+  // 不会把符号敲进答案，且继续冒泡到 window 触发注册的快捷键。
 
   // 给 windows 用户添加 ctrl + backspace 删除上一个单词的快捷键
   // 有些浏览器 input 不支持通过 ctrl + backspace 删除 所以自行扩展下

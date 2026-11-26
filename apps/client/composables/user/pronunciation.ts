@@ -1,6 +1,7 @@
 import { ref } from "vue";
 
 import { getApiBase } from "~/api/http";
+import { webTtsAudioUrl, webTtsReady } from "~/composables/web/ttsAudio";
 
 /**
  * 发音源
@@ -98,15 +99,23 @@ export function usePronunciation() {
     }
   }
 
-  /** 服务端合成地址（主音源） */
+  /** 主音源地址 */
   function getPronunciationUrl(english: string | undefined): string {
     const text = (english ?? "").trim();
     if (!text) return "";
     // apiBase 一般在 http 插件里初始化；取不到时退回本地默认端口
     const base = getApiBase();
-    // 纯前端版没有服务端合成，主音源直接走有道 dictvoice（在线），
+    // 纯前端版：优先播 GitHub Pages 上预合成的 mp3（tools/build-web-tts.mjs
+    // 生成的清单，与 API 缓存键一致），未命中再走有道 dictvoice，
     // 离线时 audio 层会再退到浏览器语音
-    if (!base) return getFallbackPronunciationUrl(text);
+    if (!base) {
+      // 读 webTtsReady 让播放链的 watchEffect 在清单异步加载完成后重算
+      if (webTtsReady.value) {
+        const webUrl = webTtsAudioUrl(text, getTtsVoice());
+        if (webUrl) return webUrl;
+      }
+      return getFallbackPronunciationUrl(text);
+    }
     const params = new URLSearchParams({ voice: getTtsVoice(), text });
     return `${base}/tts/speak?${params.toString()}`;
   }

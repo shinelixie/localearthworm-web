@@ -11,7 +11,8 @@
     "test": "pnpm -F client test",
     "docs:help": "node tools/build-help-docs.mjs",
     "format": "prettier --write --cache .",
-    "format-check": "prettier --check --cache ."
+    "format-check": "prettier --check --cache .",
+    "web-tts": "node tools/build-web-tts.mjs"
   },
   "keywords": [],
   "license": "ISC",

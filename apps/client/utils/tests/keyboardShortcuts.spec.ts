@@ -84,6 +84,19 @@ describe("keyboardShortcuts", () => {
     expect(commandB).toBeCalled();
   });
 
+  it("should trigger command when press Ctrl+\\ (音标提示)", () => {
+    let command = vi.fn();
+    registerShortcut("Ctrl+\\", command);
+
+    // Ctrl+\ 在 Firefox/Chrome 都未被浏览器保留，事件 key 是反斜杠本身
+    fireEvent.keyDown({
+      ctrlKey: true,
+      key: "\\",
+    });
+
+    expect(command).toBeCalled();
+  });
+
   it("should trigger command when press any shortcut key", () => {
     let command = vi.fn();
     registerShortcut("*", command);

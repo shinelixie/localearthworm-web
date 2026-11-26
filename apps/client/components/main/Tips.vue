@@ -37,8 +37,8 @@ import { useWrapperQuestionInput } from "./QuestionInput/useWrapperQuestionInput
 
 const { toggleAnswerTip, isAnswerTip } = useAnswerTip();
 const { shortcutKeys } = useShortcutKeyMode();
-const { playSound } = usePlaySound(shortcutKeys.value.sound);
 const { showPhonetic, toggle: togglePhonetic } = usePhoneticTip();
+const { playSound } = usePlaySound(shortcutKeys.value.sound);
 const { isChineseToEnglishMode } = useGamePlayMode();
 const learningPathStore = useLearningPathStore();
 const { goToNextQuestion } = useAnswer();
@@ -48,7 +48,7 @@ const { handleMastered } = useMasteredShortcut();
 useShowAnswer(shortcutKeys.value.answer);
 
 const keybindings = computed(() => {
-  // 高阶难度不给提示（答题区的 1/2 快捷键同样被屏蔽），列表里也不显示
+  // 高阶难度不给提示，列表里也不显示
   const advancedNoHelp =
     isChineseToEnglishMode() && learningPathStore.currentDifficulty === "advanced";
 
@@ -56,17 +56,10 @@ const keybindings = computed(() => {
     ? []
     : [
         {
-          keys: "1",
+          keys: "Ctrl+\\",
           text: showPhonetic.value ? "隐藏音标" : "音标提示",
           eventFn: () => {
             togglePhonetic();
-          },
-        },
-        {
-          keys: "2",
-          text: "朗读发音",
-          eventFn: () => {
-            playSound();
           },
         },
       ];
