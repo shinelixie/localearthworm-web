@@ -44,9 +44,16 @@ export default defineNuxtConfig({
       script: appScripts,
     },
   },
-  // 纯前端版只做静态 SPA 壳，不抓取客户端路由（那是前端 hash 路由处理的）
+  // 纯前端版只做静态 SPA 壳，不抓取客户端路由（那是前端 hash 路由处理的）。
+  // output 指向独立目录 dist-web：本地版(pnpm build)写 .output、网页版(build:web)写
+  // dist-web，两套产物互不覆盖 —— 同写 .output 时谁后构建谁就把另一方的 bundle 冲掉
+  //（表现为先启动的那个服务白屏：旧 HTML 引用已不存在的 hash 资产）。
   nitro: isWeb
     ? {
+        output: {
+          dir: "dist-web",
+          publicDir: "dist-web/public",
+        },
         prerender: {
           crawlLinks: false,
           routes: ["/"],

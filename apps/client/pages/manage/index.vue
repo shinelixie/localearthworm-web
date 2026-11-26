@@ -1,48 +1,5 @@
 <template>
-  <!-- 未解锁：PIN 门（纯前端版；本地后端版 canManage 恒真，直接进页面） -->
-  <div
-    v-if="!canManage"
-    class="flex min-h-screen flex-col items-center justify-center gap-4 px-4"
-  >
-    <div
-      class="w-full max-w-xs rounded-xl border border-gray-200 bg-white p-6 text-center dark:border-gray-700 dark:bg-gray-900"
-    >
-      <div class="text-2xl">🔒</div>
-      <h1 class="mt-2 text-lg font-semibold text-gray-800 dark:text-gray-100">课程管理</h1>
-      <p class="mt-1 text-xs text-gray-500">这是仅管理员可见的页面，请输入 PIN 解锁</p>
-      <form
-        class="mt-4 flex flex-col gap-2"
-        @submit.prevent="handleVerify"
-      >
-        <input
-          v-model="pinInput"
-          type="password"
-          inputmode="numeric"
-          autocomplete="off"
-          maxlength="6"
-          placeholder="PIN"
-          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-center tracking-widest outline-none focus:border-purple-500 dark:border-gray-600 dark:bg-gray-800"
-        />
-        <button
-          type="submit"
-          class="btn btn-primary w-full"
-        >
-          解锁
-        </button>
-      </form>
-      <p
-        v-if="pinError"
-        class="mt-3 text-xs text-red-500"
-      >
-        {{ pinError }}
-      </p>
-    </div>
-  </div>
-
-  <div
-    v-else
-    class="mx-auto flex w-full max-w-screen-2xl flex-col px-4 py-6"
-  >
+  <div class="mx-auto flex w-full max-w-screen-2xl flex-col px-4 py-6">
     <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">课程管理</h1>
@@ -50,13 +7,88 @@
           编辑句子原文与翻译、逐词语法分析，以及四种练法共用的拆分树。
         </p>
       </div>
-      <NuxtLink
-        to="/course-pack"
-        class="btn btn-ghost btn-sm"
-      >
-        返回课程包
-      </NuxtLink>
+      <div class="flex items-center gap-2">
+        <button
+          v-if="isWebMode"
+          class="btn btn-ghost btn-sm"
+          :class="{ 'is-active': !!editsOpen }"
+          @click="toggleEditsPanel"
+        >
+          本机修改
+          <span
+            v-if="edits.length"
+            class="rounded-full bg-purple-500 px-1.5 text-xs text-white"
+          >
+            {{ edits.length }}
+          </span>
+        </button>
+        <NuxtLink
+          to="/course-pack"
+          class="btn btn-ghost btn-sm"
+        >
+          返回课程包
+        </NuxtLink>
+      </div>
     </div>
+
+    <!-- 本机修改面板（纯前端版专属）：这里改的内容存在浏览器 IndexedDB，
+         只对当前这台设备生效；要分享给所有人，回本地版改母库再重新导出 -->
+    <UModal
+      :model-value="editsOpen"
+      :ui="{ width: 'w-full sm:max-w-2xl' }"
+      @update:model-value="(value: boolean) => (editsOpen = value)"
+    >
+      <div class="flex max-h-[82vh] flex-col rounded-xl bg-white dark:bg-gray-900">
+        <CommonModalHeader
+          title="本机修改"
+          @close="editsOpen = false"
+        />
+        <p class="px-6 pt-3 text-xs text-gray-500">
+          网页版的内容随站发布、不可改库。你在课程管理里改过的句子会存在这台浏览器的 IndexedDB
+          里（只对你本机生效），刷新也不会丢；清除后即恢复为发布时的原文。
+        </p>
+        <div
+          v-if="!edits.length"
+          class="flex flex-1 items-center justify-center px-6 py-10 text-sm text-gray-400"
+        >
+          还没有本机修改
+        </div>
+        <ul
+          v-else
+          class="mt-3 flex-1 space-y-2 overflow-y-auto px-6 pb-4"
+        >
+          <li
+            v-for="item in edits"
+            :key="item.statementId"
+            class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700"
+          >
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-gray-700 dark:text-gray-200">{{ item.english }}</p>
+              <p class="mt-1 text-xs text-gray-400">
+                {{ item.fields.join(" · ") }} · {{ formatEditedAt(item.updatedAt) }}
+              </p>
+            </div>
+            <button
+              class="btn btn-ghost btn-xs text-red-500 hover:text-red-600"
+              @click="removeEdit(item.statementId)"
+            >
+              清除
+            </button>
+          </li>
+        </ul>
+        <div
+          v-if="edits.length"
+          class="border-t border-gray-200 p-4 dark:border-gray-700"
+        >
+          <button
+            class="btn btn-sm w-full bg-red-500 text-white hover:bg-red-600"
+            @click="clearAllEdits"
+          >
+            清除全部（{{ edits.length }} 条）
+          </button>
+        </div>
+      </div>
+    </UModal>
 
     <div class="grid min-h-[75vh] gap-4 lg:grid-cols-[220px_280px_1fr]">
       <!-- 课程包 -->
@@ -292,38 +324,79 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 
+import type { LocalStatementOverride } from "~/api/course";
 import type { Course, CoursePack, CoursePacksItem, Statement } from "~/types";
 import type { SplitTree } from "~/types/models/split-tree";
 import type { StatementAnalysis } from "~/types/models/statement-analysis";
 import {
+  clearLocalStatementOverrides,
+  deleteLocalStatementOverride,
   fetchCourse,
+  fetchLocalStatementOverrides,
   saveStatementAnalysis,
   saveStatementSplitTree,
   updateStatementContent,
 } from "~/api/course";
 import { fetchCoursePack, fetchCoursePacks } from "~/api/course-pack";
+import { getApiBase } from "~/api/http";
+import CommonModalHeader from "~/components/common/ModalHeader.vue";
 import GrammarEditor from "~/components/manage/GrammarEditor.vue";
 import SplitEditor from "~/components/manage/SplitEditor.vue";
-import { useManageAccess } from "~/composables/user/manageAccess";
-
-const { canManage, verify } = useManageAccess();
-const pinInput = ref("");
-const pinError = ref("");
-
-function handleVerify() {
-  if (verify(pinInput.value)) {
-    pinError.value = "";
-    pinInput.value = "";
-  } else {
-    pinError.value = "PIN 不正确，请重试";
-  }
-}
 
 const tabs = [
   { key: "content", label: "原文与翻译" },
   { key: "grammar", label: "语法分析" },
   { key: "split", label: "拆分与练法" },
 ] as const;
+
+// 纯前端版（apiBase 为空 → 浏览器端后端）才有「本机修改」
+const isWebMode = !getApiBase();
+const editsOpen = ref(false);
+const edits = ref<LocalStatementOverride[]>([]);
+
+async function loadEdits() {
+  if (!isWebMode) return;
+  try {
+    edits.value = await fetchLocalStatementOverrides();
+  } catch {
+    edits.value = [];
+  }
+}
+
+function toggleEditsPanel() {
+  editsOpen.value = !editsOpen.value;
+  if (editsOpen.value) void loadEdits();
+}
+
+async function removeEdit(statementId: string) {
+  try {
+    await deleteLocalStatementOverride(statementId);
+    edits.value = edits.value.filter((item) => item.statementId !== statementId);
+    toast.success("已清除这条本机修改");
+  } catch (error: any) {
+    toast.error(error?.message || "清除失败");
+  }
+}
+
+async function clearAllEdits() {
+  try {
+    await clearLocalStatementOverrides();
+    edits.value = [];
+    toast.success("已清除全部本机修改");
+  } catch (error: any) {
+    toast.error(error?.message || "清除失败");
+  }
+}
+
+function formatEditedAt(iso: string) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 const loading = reactive({ packs: true, pack: false, course: false });
 const saving = reactive({ content: false, grammar: false, split: false });
@@ -449,6 +522,7 @@ async function saveContent() {
       soundmark: updated.soundmark,
     });
     toast.success("原文与翻译已保存");
+    if (isWebMode) void loadEdits();
   } catch (error: any) {
     toast.error(error?.message || "保存失败");
   } finally {
@@ -464,6 +538,7 @@ async function saveGrammar(analysis: StatementAnalysis) {
     await saveStatementAnalysis(statement.id, analysis);
     statement.analysis = analysis;
     toast.success("语法分析已保存");
+    if (isWebMode) void loadEdits();
   } catch (error: any) {
     toast.error(error?.message || "语法分析保存失败");
   } finally {
@@ -479,6 +554,7 @@ async function saveSplit(tree: SplitTree) {
     await saveStatementSplitTree(statement.id, tree);
     statement.splitTree = tree;
     toast.success("拆分树已保存");
+    if (isWebMode) void loadEdits();
   } catch (error: any) {
     toast.error(error?.message || "拆分树保存失败");
   } finally {

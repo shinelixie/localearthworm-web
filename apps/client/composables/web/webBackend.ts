@@ -2,6 +2,13 @@ import type { WebCourse, WebPack } from "./content";
 import { getCourse, getPack, getStatement, loadWebData } from "./content";
 import { idbAllByPrefix, idbDel, idbDelByPrefix, idbGet, idbSet } from "./idb";
 
+// 课程管理「本机编辑」持久化。web 版内容是只读静态文件，改不动站里发布的内容；
+// 这里把用户在本机改过的句子按 statementId 存 IndexedDB（key 前缀 ov:<id>，
+// value 是 { english?, chinese?, soundmark?, analysis?, splitTree?, updatedAt }）。
+// 所有课程内容读取路径统一套一遍（applyOverrides），练习页与管理页读到的都是同一份
+// 本机版本。管理页「本机修改」面板可查可删（GET/DELETE manage/overrides）。
+// 只影响当前这台浏览器的这个站点；要全局生效仍走母版重新导出（pnpm build:web 后 push）。
+
 /**
  * 纯前端版的「浏览器端后端」。
  *
@@ -62,21 +69,69 @@ function learnedCount(course: WebCourse, statementIndex: number, completed: bool
   return Math.min(total, statementIndex);
 }
 
-/**
- * 课程管理里改过的句子（web 版数据只读，改动只存本会话内存，
- * 让管理页与练习在同一会话内一致；刷新后回到导出时的内容）。
- */
-const statementOverrides = new Map<
-  string,
-  { english?: string; chinese?: string; soundmark?: string }
->();
+/** 课程管理改过的句子，按 statementId 索引；value 是字段补丁（部分字段可缺省） */
+type StatementOverride = {
+  english?: string;
+  chinese?: string;
+  soundmark?: string;
+  analysis?: unknown;
+  splitTree?: unknown;
+  updatedAt?: string;
+};
 
+const OVERRIDES_PREFIX = "ov:";
+
+let overridesStore: Map<string, StatementOverride> | null = null;
+let overridesLoad: Promise<void> | null = null;
+
+/** 同步取当前（可能未载入）的本机修改表 —— applyOverrides 是同步的，读这里 */
+function overrides(): Map<string, StatementOverride> {
+  if (!overridesStore) overridesStore = new Map();
+  return overridesStore;
+}
+
+/** 从 IndexedDB 载入全部本机修改（整页生命周期只跑一次，失败则保持空表） */
+function ensureOverridesLoaded(): Promise<void> {
+  if (!overridesLoad) {
+    overridesLoad = idbAllByPrefix<StatementOverride>(OVERRIDES_PREFIX)
+      .then((rows) => {
+        overridesStore = new Map(
+          rows.map((row) => [row.key.slice(OVERRIDES_PREFIX.length), row.value]),
+        );
+      })
+      .catch(() => {
+        overridesLoad = null; // 载入失败（如隐私模式）时下次再试，同时保留空表
+      });
+  }
+  return overridesLoad;
+}
+
+/** 写一条本机修改：落 IndexedDB + 更新内存表（读路径立即可见） */
+async function persistOverride(statementId: string, patch: StatementOverride) {
+  const prev = overrides().get(statementId);
+  const next: StatementOverride = { ...prev, ...patch, updatedAt: new Date().toISOString() };
+  overrides().set(statementId, next);
+  try {
+    await idbSet(`${OVERRIDES_PREFIX}${statementId}`, next);
+  } catch {
+    /* 落库失败也不影响本次会话内一致 */
+  }
+}
+
+/** 课程内容读取统一套一遍：管理页、练习页都读同一份本机版本 */
 function applyOverrides(course: WebCourse): WebCourse {
+  const map = overrides();
   const statements = course.statements.map((statement) => {
-    const patch = statementOverrides.get(statement.id);
+    const patch = map.get(statement.id);
     return patch ? { ...statement, ...patch } : statement;
   });
   return { ...course, statements };
+}
+
+/** 测试用：清掉模块级本机修改表（route 每次会重新从 IndexedDB 载入） */
+export function __resetStatementOverrides(): void {
+  overridesStore = new Map();
+  overridesLoad = null;
 }
 
 const RANK_ORDER = ["S", "A", "B", "C", "D"];
@@ -147,6 +202,9 @@ export async function route(
   const seg = path.split("/");
   const query = fullUrl.searchParams;
   const m = method.toUpperCase();
+
+  // 课程内容读之前保证本机修改（管理页编辑）已从 IndexedDB 载入
+  await ensureOverridesLoaded();
 
   // ===== 内容：课程包 =====
   if (path === "course-pack") {
@@ -265,26 +323,77 @@ export async function route(
       }
     }
 
-    // 课程管理：改句子原文/翻译/音标（course-pack/statements/:id）
+    // 课程管理：改句子原文/翻译/音标（course-pack/statements/:id）→ 存本机修改
     if (seg[1] === "statements" && seg[2] && m === "PATCH") {
       const statementId = decodeURIComponent(seg[2]);
       const hit = await getStatement(statementId);
-      const patch = {
-        english: body.english ?? undefined,
-        chinese: body.chinese ?? undefined,
-        soundmark: body.soundmark ?? undefined,
-      };
-      statementOverrides.set(statementId, { ...statementOverrides.get(statementId), ...patch });
-      const merged = { ...(hit?.statement ?? {}), ...patch };
+      const patch: StatementOverride = {};
+      if (body.english !== undefined) patch.english = body.english;
+      if (body.chinese !== undefined) patch.chinese = body.chinese;
+      if (body.soundmark !== undefined) patch.soundmark = body.soundmark;
+      await persistOverride(statementId, patch);
+      const merged = { ...(hit?.statement ?? {}), ...overrides().get(statementId) };
       return json(merged);
     }
 
     return notFound(path);
   }
 
-  // ===== 内容：语法 / 拆分树（web 版只读，改动仅存本会话） =====
+  // ===== 内容：语法 / 拆分树（web 版存本机 IndexedDB，练习/管理页读到同一份） =====
   if ((seg[0] === "grammar-analysis" || seg[0] === "split-tree") && seg[1] && m === "POST") {
+    const statementId = decodeURIComponent(seg[1]);
+    if (seg[0] === "grammar-analysis" && body.analysis) {
+      await persistOverride(statementId, { analysis: body.analysis });
+    } else if (seg[0] === "split-tree" && body.tree) {
+      await persistOverride(statementId, { splitTree: body.tree });
+    }
     return json({ success: true });
+  }
+
+  // ===== 课程管理：本机修改 列表/清除（纯前端版专属 API） =====
+  if (seg[0] === "manage" && seg[1] === "overrides") {
+    if (m === "GET" && !seg[2]) {
+      await ensureOverridesLoaded();
+      const fieldNames = ["english", "chinese", "soundmark", "analysis", "splitTree"] as const;
+      const data: {
+        statementId: string;
+        coursePackId: string;
+        courseId: string;
+        english: string;
+        fields: string[];
+        updatedAt: string;
+      }[] = [];
+      for (const [id, ov] of [...overrides().entries()].sort((a, b) =>
+        (b[1].updatedAt ?? "").localeCompare(a[1].updatedAt ?? ""),
+      )) {
+        const hit = await getStatement(id);
+        if (!hit) continue;
+        data.push({
+          statementId: id,
+          coursePackId: hit.course.coursePackId,
+          courseId: hit.course.id,
+          english: ov.english ?? hit.statement.english,
+          fields: fieldNames.filter((f) => ov[f] !== undefined),
+          updatedAt: ov.updatedAt ?? "",
+        });
+      }
+      return json(data);
+    }
+    if (m === "DELETE") {
+      await ensureOverridesLoaded();
+      if (seg[2]) {
+        const statementId = decodeURIComponent(seg[2]);
+        overrides().delete(statementId);
+        await idbDel(`${OVERRIDES_PREFIX}${statementId}`);
+      } else {
+        const n = overrides().size;
+        await idbDelByPrefix(OVERRIDES_PREFIX);
+        overridesStore = new Map();
+        return json({ ok: true, deleted: n });
+      }
+      return json({ ok: true });
+    }
+    return notFound(path);
   }
 
   // ===== 用户 =====

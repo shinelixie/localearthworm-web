@@ -1,19 +1,8 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
-import { ref } from "vue";
 
 import { saveStatementSplitTree, updateStatementContent } from "~/api/course";
 import ManagePage from "../../../pages/manage/index.vue";
-
-// 测试环境 apiBase 为空（同 web 模式），直接放行 PIN 门
-vi.mock("~/composables/user/manageAccess", () => ({
-  useManageAccess: () => ({
-    canManage: ref(true),
-    unlocked: ref(true),
-    verify: () => true,
-    clear: () => {},
-  }),
-}));
 
 vi.mock("~/api/course-pack", () => ({
   fetchCoursePacks: vi.fn(async () => [

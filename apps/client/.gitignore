@@ -5,6 +5,8 @@
 .nitro
 .cache
 dist
+# 网页版(Pages)静态产物,与本地版 .output 分离,避免互相覆盖
+dist-web
 
 # Node dependencies
 node_modules

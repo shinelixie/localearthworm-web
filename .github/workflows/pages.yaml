@@ -52,7 +52,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/client/.output/public
+          path: apps/client/dist-web/public
 
   deploy:
     needs: build

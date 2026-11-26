@@ -52,6 +52,31 @@ export async function saveStatementAnalysis(
   });
 }
 
+/** 纯前端版：本机改过的句子（管理页「本机修改」面板用；本地后端版不会走到这里） */
+export interface LocalStatementOverride {
+  statementId: string;
+  coursePackId: string;
+  courseId: string;
+  english: string;
+  fields: string[];
+  updatedAt: string;
+}
+
+export async function fetchLocalStatementOverrides(): Promise<LocalStatementOverride[]> {
+  const http = getHttp();
+  return http<LocalStatementOverride[]>("manage/overrides", { method: "get" });
+}
+
+export async function deleteLocalStatementOverride(statementId: string): Promise<{ ok: boolean }> {
+  const http = getHttp();
+  return http<{ ok: boolean }>(`manage/overrides/${statementId}`, { method: "delete" });
+}
+
+export async function clearLocalStatementOverrides(): Promise<{ ok: boolean; deleted: number }> {
+  const http = getHttp();
+  return http<{ ok: boolean; deleted: number }>("manage/overrides", { method: "delete" });
+}
+
 /** 课程管理：保存某句的拆分树 */
 export async function saveStatementSplitTree(
   statementId: string,

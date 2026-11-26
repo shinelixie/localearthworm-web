@@ -3,7 +3,7 @@ import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { idbDel, idbDelByPrefix, idbGet, idbSet } from "../idb";
-import { route } from "../webBackend";
+import { __resetStatementOverrides, route } from "../webBackend";
 
 /**
  * 浏览器端后端（webBackend.route）的集成测试。
@@ -107,11 +107,14 @@ beforeEach(async () => {
     "session:",
     "learning-time:",
     "practice-state:",
+    "ov:",
   ]) {
     await idbDelByPrefix(prefix);
   }
   await idbDel("review-settings");
   await idbDel("learning-path-config");
+  // 本机修改表是模块级单例：逐个用例重置（route 每次都会从 IndexedDB 重新载入）
+  __resetStatementOverrides();
 });
 
 describe("webBackend.route", () => {
@@ -313,6 +316,47 @@ describe("webBackend.route", () => {
     expect(point).toBeDefined();
     expect(point.sessions).toBe(1);
     expect(point.durationMs).toBe(120000); // 墙钟 120s，不是会话 durationMs 15s
+  });
+
+  it("本机修改：改原文/语法/拆分树 → 持久化，读取路径套上，可清除", async () => {
+    await call("PATCH", "/course-pack/statements/s1", {
+      body: { english: "I like cats a lot.", chinese: "我很喜欢猫。", soundmark: "/kat/" },
+    });
+    await call("POST", "/grammar-analysis/s1", { body: { analysis: { segments: [] } } });
+    await call("POST", "/split-tree/s1", { body: { tree: { en: "I like cats a lot.", zh: "" } } });
+
+    // 单课读取：三处改动全部生效
+    const course = await call("GET", "/course-pack/pack-1/courses/course-1");
+    const s1 = course.data.statements.find((s: any) => s.id === "s1");
+    expect(s1.english).toBe("I like cats a lot.");
+    expect(s1.chinese).toBe("我很喜欢猫。");
+    expect(s1.soundmark).toBe("/kat/");
+    expect(s1.analysis).toEqual({ segments: [] });
+    expect(s1.splitTree).toEqual({ en: "I like cats a lot.", zh: "" });
+
+    // 列表/清除
+    const list = await call("GET", "/manage/overrides");
+    expect(list.data).toHaveLength(1);
+    expect(list.data[0]).toMatchObject({
+      statementId: "s1",
+      courseId: "course-1",
+      english: "I like cats a lot.",
+      fields: ["english", "chinese", "soundmark", "analysis", "splitTree"],
+    });
+
+    await call("DELETE", "/manage/overrides/s1");
+    const reread = await call("GET", "/course-pack/pack-1/courses/course-1");
+    const s1b = reread.data.statements.find((s: any) => s.id === "s1");
+    expect(s1b.english).toBe("I like cats."); // 恢复导出原文
+    expect(s1b.analysis).toBeNull();
+    expect((await call("GET", "/manage/overrides")).data).toHaveLength(0);
+
+    // 批量清除（再改一条后整清）
+    await call("PATCH", "/course-pack/statements/s2", { body: { chinese: "狗很友好！" } });
+    await call("DELETE", "/manage/overrides");
+    expect((await call("GET", "/manage/overrides")).data).toHaveLength(0);
+    const reread2 = await call("GET", "/course-pack/pack-1/courses/course-1");
+    expect(reread2.data.statements.find((s: any) => s.id === "s2").chinese).toBe("狗很友好。");
   });
 
   it("TTS 路径 404（前端走有道/浏览器兜底）", async () => {
